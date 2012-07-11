@@ -1,11 +1,17 @@
 import sublime
 from sublime import *
 from sublime_plugin import *
-import os, threading, thread, socket, getpass, subprocess, killableprocess, tempfile, datetime, time
+import os, threading, thread, socket, getpass
+import subprocess, killableprocess, tempfile, datetime, time
 import functools, inspect, traceback, random, re
 from sexp import sexp
 from sexp.sexp import key, sym
 from string import strip
+import env
+import config
+
+def environment_constructor(window):
+  return EnsimeEnvironment(window)
 
 class EnsimeApi:
 
@@ -19,15 +25,13 @@ class EnsimeApi:
 
   def add_notes(self, notes):
     self.env.notes += notes
-    for i in range(0, self.w.num_groups()):
-      v = self.w.active_view_in_group(i)
-      EnsimeHighlights(v).refresh()
+    for v in self.w.views():
+      EnsimeHighlights(v).add(notes)
 
   def clear_notes(self):
     self.env.notes = []
-    for i in range(0, self.w.num_groups()):
-      v = self.w.active_view_in_group(i)
-      EnsimeHighlights(v).refresh()
+    for v in self.w.views():
+      EnsimeHighlights(v).clear_all()
 
   def inspect_type_at_point(self, file_path, position, on_complete):
     req = ensime_codec.encode_inspect_type_at_point(file_path, position)
@@ -37,9 +41,9 @@ class EnsimeApi:
   def inspect_type_at_point_on_complete_wrapper(self, on_complete, payload):
     return on_complete(ensime_codec.decode_inspect_type_at_point(payload))
 
-  def complete_member(self, file_path, position):
-    req = ensime_codec.encode_complete_member(file_path, position)
-    resp = self.env.controller.client.sync_req(req)
+  def get_completions(self, file_path, position):
+    req = ensime_codec.encode_completions(file_path, position)
+    resp = self.env.controller.client.sync_req(req, timeout=0.5)
     return ensime_codec.decode_completions(resp)
 
   def symbol_at_point(self, file_path, position, on_complete):
@@ -50,48 +54,31 @@ class EnsimeApi:
   def symbol_at_point_on_complete_wrapper(self, on_complete, payload):
     return on_complete(ensime_codec.decode_symbol_at_point(payload))
 
-envLock = threading.RLock()
-ensime_envs = {}
-
-def get_ensime_env(window):
-  if window:
-    if window.id() in ensime_envs:
-      return ensime_envs[window.id()]
-    envLock.acquire()
-    try:
-      if not (window.id() in ensime_envs):
-        ensime_envs[window.id()] = EnsimeEnvironment(window)
-      return ensime_envs[window.id()]
-    finally:
-      envLock.release()
-  return None
 
 class EnsimeEnvironment(object):
   def __init__(self, window):
     # plugin-wide stuff (immutable)
     self.settings = sublime.load_settings("Ensime.sublime-settings")
-    server_dir = self.settings.get("ensime_server_path", "sublime_ensime\\server" if os.name == 'nt' else "sublime_ensime/server")
-    self.server_path = server_dir if server_dir.startswith("/") or (":/" in server_dir) or (":\\" in server_dir) else os.path.join(sublime.packages_path(), server_dir)
-    self.ensime_executable = self.server_path + '/' + ("bin\\server.bat" if os.name == 'nt' else "bin/server")
+    server_dir = self.settings.get(
+      "ensime_server_path",
+      "sublime_ensime\\server"
+      if os.name == 'nt' else "sublime_ensime/server")
+    self.server_path = (server_dir
+                        if (server_dir.startswith("/") or
+                            (":/" in server_dir) or
+                            (":\\" in server_dir))
+                        else os.path.join(sublime.packages_path(), server_dir))
+    self.ensime_executable = (self.server_path + '/' +
+                              ("bin\\server.bat" if os.name == 'nt'
+                               else "bin/server"))
     self.plugin_root = os.path.normpath(os.path.join(self.server_path, ".."))
     self.log_root = os.path.normpath(os.path.join(self.plugin_root, "logs"))
 
     # instance-specific stuff (immutable)
-    self.project_root = None
-    self.project_file = None
-    self.project_config = []
-    prj_files = [(f + "/.ensime") for f in window.folders() if os.path.exists(f + "/.ensime")]
-    if len(prj_files) > 0:
-      self.project_file = prj_files[0]
-      self.project_root = os.path.dirname(self.project_file)
-      src = open(self.project_file).read() if self.project_file else "()"
-      self.project_config = sexp.read(src)
-      m = sexp.sexp_to_key_map(self.project_config)
-      if m.get(":root-dir"):
-        self.project_root = m[":root-dir"]
-      else:
-        self.project_config = self.project_config + [key(":root-dir"), self.project_root]
-    self.valid = self.project_config
+    (root, conf) = config.load(window)
+    self.project_root = root
+    self.project_config = conf
+    self.valid = self.project_config != None
 
     # lifecycle (mutable)
     self.lifecycleLock = threading.RLock()
@@ -115,6 +102,7 @@ class EnsimeEnvironment(object):
     self.rv.settings().set("word_wrap", True)
     self.curr_sel = None
     self.prev_sel = None
+
 
 class EnsimeLog(object):
 
@@ -274,14 +262,15 @@ class EnsimeLog(object):
 
 class EnsimeBase(object):
   def __init__(self, owner):
+    env.environment_constructor = environment_constructor
     self.owner = owner
     if type(owner) == Window:
-      self.env = get_ensime_env(owner)
+      self.env = env.for_window(owner)
       self.w = owner
       self.v = owner.active_view()
       self.f = None
     elif type(owner) == View:
-      self.env = get_ensime_env(owner.window() or sublime.active_window())
+      self.env = env.for_window(owner.window() or sublime.active_window())
       self.w = owner.window()
       self.v = owner
       self.f = owner.file_name()
@@ -507,14 +496,13 @@ class EnsimeCodec:
   def decode_inspect_type_at_point(self, data):
     return self.decode_type(data)
 
-  def encode_complete_member(self, file_path, position):
-    return [sym("swank:completions"), str(file_path), int(position), 0, False]
+  def encode_completions(self, file_path, position):
+    return [sym("swank:completions"), str(file_path), int(position), 30, False]
 
   def decode_completions(self, data):
     if not data: return []
-    friend = sexp.sexp_to_key_map(data)
-    comps = friend[":completions"] if ":completions" in friend else []
-    return [self.decode_completion(p) for p in friend[":completions"]]
+    m = sexp.sexp_to_key_map(data)
+    return [self.decode_completion(p) for p in m.get(":completions", [])]
 
   def decode_completion(self, data):
     m = sexp.sexp_to_key_map(data)
@@ -606,7 +594,7 @@ class EnsimeClient(EnsimeClientListener, EnsimeCommon):
     self.log_client("SEND ASYNC REQ: " + msg_str)
     self.socket.send(msg_str.encode('utf-8'))
 
-  def sync_req(self, to_send):
+  def sync_req(self, to_send, timeout=0):
     msg_id = self.next_message_id()
     event = threading.Event()
     self.handlers[msg_id] = (event, None, time.time())
@@ -617,11 +605,14 @@ class EnsimeClient(EnsimeClientListener, EnsimeCommon):
     self.log_client("SEND SYNC REQ: " + msg_str)
     self.socket.send(msg_str)
 
-    event.wait(self.timeout)
+    max_wait = timeout or self.timeout
+    event.wait(max_wait)
     if hasattr(event, "payload"):
       return event.payload
     else:
-      self.log_client("sync_req #" + str(msg_id) + " has timed out (didn't get a response after " + str(self.timeout) + " seconds)")
+      self.log_client("sync_req #" + str(msg_id) +
+                      " has timed out (didn't get a response after " +
+                      str(max_wait) + " seconds)")
       return None
 
   def on_client_async_data(self, data):
@@ -754,7 +745,6 @@ class EnsimeClient(EnsimeClientListener, EnsimeCommon):
   def feedback(self, msg):
     msg = msg.replace("\r\n", "\n").replace("\r", "\n") + "\n"
     self.log_client(msg.strip(), to_disk_only = True)
-    self.view_insert(self.env.cv, msg)
 
 class EnsimeServerListener:
   def on_server_data(self, data):
@@ -924,12 +914,10 @@ class EnsimeServer(EnsimeServerListener, EnsimeCommon):
   def on_server_data(self, data):
     str_data = str(data).replace("\r\n", "\n").replace("\r", "\n")
     self.log_server(str_data.strip(), to_disk_only = True)
-    self.view_insert(self.env.sv, str_data)
 
   def shutdown(self):
     self.proc.kill()
     self.proc = None
-    self.view_insert(self.env.sv, "[Shut down]")
 
 class EnsimeController(EnsimeCommon, EnsimeClientListener, EnsimeServerListener):
   def __init__(self, owner):
@@ -983,12 +971,25 @@ class EnsimeController(EnsimeCommon, EnsimeClientListener, EnsimeServerListener)
     timeout = self.env.settings.get("rpc_timeout", 3)
     self.client = EnsimeClient(self.owner, self.port_file, timeout)
     self.client.startup()
-    self.client.async_req([sym("swank:connection-info")], self.response_handshake, call_back_into_ui_thread = True)
+    self.client.async_req([sym("swank:connection-info")],
+                          self.__response_handshake,
+                          call_back_into_ui_thread = True)
 
-  def response_handshake(self, server_info):
+  def __response_handshake(self, server_info):
     self.status_message("Initializing... ")
-    req = ensime_codec.encode_initialize_project(self.env.project_config)
-    self.client.async_req(req, lambda _: self.status_message("Ensime ready!"), call_back_into_ui_thread = True)
+    config.select_subproject(self.env.project_config,
+                             self.owner,
+                             self.__initialize)
+
+  def __initialize(self, subproject_name):
+    self.status_message("Starting subproject: " + str(subproject_name))
+    conf = self.env.project_config + [key(":active-subproject"), subproject_name]
+    req = ensime_codec.encode_initialize_project(conf)
+    self.client.async_req(
+      req,
+      lambda _: self.status_message("Continuing to init project..."),
+      call_back_into_ui_thread = True)
+
 
   def shutdown(self):
     self.env.lifecycleLock.acquire()
@@ -1210,33 +1211,52 @@ class EnsimeReplNextCommand(EnsimeTextCommand):
     self.repl_show()
 
 class EnsimeHighlights(EnsimeCommon):
-  def hide(self):
+
+  def refresh(self):
+    self.clear_all()
+    self.add(self.env.notes)
+
+  def clear_all(self):
     self.v.erase_regions("ensime-error")
     self.v.erase_regions("ensime-error-underline")
 
-  def show(self):
-    relevant_notes = filter(lambda note: self.same_files(note.file_name, self.v.file_name()), self.env.notes)
-    errors = [self.v.full_line(note.start) for note in relevant_notes]
-    underlines = []
-    for note in self.env.notes:
-      underlines += [sublime.Region(int(pos)) for pos in range(note.start, note.end)]
+  def add(self, notes):
+    relevant_notes = filter(
+      lambda note: self.same_files(note.file_name, self.v.file_name()), notes)
+
+    # Underline specific error range
+    underlines = [sublime.Region(note.start, note.end) for note in relevant_notes]
     if self.env.settings.get("error_highlight") and self.env.settings.get("error_underline"):
       self.v.add_regions(
         "ensime-error-underline",
-        underlines,
+        underlines + self.v.get_regions("ensime-error-underline"),
         "invalid.illegal",
         sublime.DRAW_EMPTY_AS_OVERWRITE)
+
+    # Outline entire errored line
+    errors = [self.v.full_line(note.start) for note in relevant_notes]
     if self.env.settings.get("error_highlight"):
       self.v.add_regions(
         "ensime-error",
-        errors,
+        errors + self.v.get_regions("ensime-error"),
         "invalid.illegal",
         self.env.settings.get("error_icon", "dot"),
         sublime.DRAW_OUTLINED)
+
+
+class EnsimeHighlightStatus(EnsimeCommon):
+
+  def refresh(self):
     if self.env.settings.get("error_status"):
+      relevant_notes = filter(
+        lambda note: self.same_files(
+          note.file_name, self.v.file_name()),
+        self.env.notes)
       bol = self.v.line(self.v.sel()[0].begin()).begin()
       eol = self.v.line(self.v.sel()[0].begin()).end()
-      msgs = [note.message for note in relevant_notes if (bol <= note.start and note.start <= eol) or (bol <= note.end and note.end <= eol)]
+      msgs = [note.message for note in relevant_notes
+              if (bol <= note.start and note.start <= eol) or
+              (bol <= note.end and note.end <= eol)]
       statusgroup = self.env.settings.get("ensime_statusbar_group", "ensime")
       if msgs:
         maxlength = self.env.settings.get("error_status_maxlength", 150)
@@ -1247,11 +1267,6 @@ class EnsimeHighlights(EnsimeCommon):
       else:
         self.v.erase_status(statusgroup)
 
-  def refresh(self):
-    if self.env.settings.get("error_highlight"):
-      self.show()
-    else:
-      self.hide()
 
 class EnsimeHighlightCommand(ProjectFileOnly, EnsimeWindowCommand):
   def run(self, enable = True):
@@ -1301,7 +1316,7 @@ class EnsimeHighlightDaemon(EventListener):
 
   def on_selection_modified(self, view):
     if view.sel():
-      self.with_api(view, lambda api: EnsimeHighlights(view).refresh())
+      self.with_api(view, lambda api: EnsimeHighlightStatus(view).refresh())
 
 # things might be simplified as per http://www.sublimetext.com/forum/viewtopic.php?f=6&t=7658
 class EnsimeCtrlClickDaemon(EventListener):
@@ -1379,9 +1394,11 @@ class EnsimeCompletionsListener(EventListener):
   def on_query_completions(self, view, prefix, locations):
     if not view.match_selector(locations[0], "source.scala"): return []
     api = ensime_api(view)
-    completions = api.complete_member(view.file_name(), locations[0]) if api else None
+    completions = api.get_completions(view.file_name(), locations[0]) if api else None
     if completions is None: return []
-    return ([(c.name + "\t" + c.signature, c.name) for c in completions], sublime.INHIBIT_EXPLICIT_COMPLETIONS | sublime.INHIBIT_WORD_COMPLETIONS)
+    return ([(c.name + "\t" + c.signature, c.name) for c in completions],
+            sublime.INHIBIT_EXPLICIT_COMPLETIONS |
+            sublime.INHIBIT_WORD_COMPLETIONS)
 
 class EnsimeInspectTypeAtPoint(ProjectFileOnly, EnsimeTextCommand):
   def run(self, edit, target= None):
