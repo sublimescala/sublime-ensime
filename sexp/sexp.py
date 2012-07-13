@@ -35,7 +35,7 @@ def sym(s):
   return Symbol(s)
 
 def read(s):
-  "Read a Scheme expression from a string."
+  "Read a sexp expression from a string."
   return read_form(s)[0]
 
 def read_form(str):
@@ -170,14 +170,17 @@ def read_int(str):
 
 def to_string(exp):
   "Convert a Python object back into a Lisp-readable string."
-  return '('+' '.join(map(to_string, exp))+')' if type(exp) == type([]) else atom_to_str(exp)
+  if isinstance(exp, list):
+    return '(' + ' '.join(map(to_string, exp)) + ')'
+  else:
+    return atom_to_str(exp)
 
 def atom_to_str(exp):
   if exp and (type(exp) == type(True)):
     return "t"
   elif (not exp) and (type(exp) == type(False)):
     return "nil"
-  elif type(exp) == type("") or type(exp) == type(u""):
+  elif isinstance(exp, basestring):
     return "\"" + exp.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
   else:
     return str(exp)
@@ -201,3 +204,4 @@ if __name__ == "__main__":
   print(str(read("\"hello \\face\"")))
   print(str(read("\"hello \\fa\\\"ce\"")))
   print(str(read("(:swank-rpc (swank:connection-info) 1)")))
+  print(to_string([7147L, [['+', 6227, u'a\n    an'], ['-', 7137, 7138]]]))

@@ -9,6 +9,7 @@ from sexp.sexp import key, sym
 from string import strip
 import env
 import dotensime
+import diff
 
 def environment_constructor(window):
   return EnsimeEnvironment(window)
@@ -42,6 +43,11 @@ class EnsimeApi:
     return on_complete(ensime_codec.decode_inspect_type_at_point(payload))
 
   def get_completions(self, file_path, position):
+    if self.v.is_dirty():
+      edits = diff.diff_view_with_disk(self.v)
+      req = ensime_codec.encode_patch_source(self.v.file_name(), edits)
+      self.env.controller.client.async_req(req)
+
     req = ensime_codec.encode_completions(file_path, position)
     resp = self.env.controller.client.sync_req(req, timeout=0.5)
     return ensime_codec.decode_completions(resp)
@@ -500,7 +506,8 @@ class EnsimeCodec:
     return self.decode_type(data)
 
   def encode_completions(self, file_path, position):
-    return [sym("swank:completions"), str(file_path), int(position), 30, False]
+    return [sym("swank:completions"),
+            str(file_path), int(position), 30, False, False]
 
   def decode_completions(self, data):
     if not data: return []
@@ -520,6 +527,9 @@ class EnsimeCodec:
 
   def encode_symbol_at_point(self, file_path, position):
     return [sym("swank:symbol-at-point"), str(file_path), int(position)]
+
+  def encode_patch_source(self, file_path, edits):
+    return [sym("swank:patch-source"), file_path, edits]
 
   def decode_symbol_at_point(self, data):
     return self.decode_symbol(data)
