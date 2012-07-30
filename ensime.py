@@ -4,6 +4,7 @@ from sublime_plugin import *
 import os, threading, thread, socket, getpass, signal
 import subprocess, killableprocess, tempfile, datetime, time
 import functools, inspect, traceback, random, re
+from functools import partial as bind
 from sexp import sexp
 from sexp.sexp import key, sym
 from string import strip
@@ -18,7 +19,7 @@ class EnsimeApi:
 
   def type_check_file(self, file_path, on_complete = None):
     req = ensime_codec.encode_type_check_file(file_path)
-    wrapped_on_complete = functools.partial(self.type_check_file_on_complete_wrapper, on_complete) if on_complete else None
+    wrapped_on_complete = bind(self.type_check_file_on_complete_wrapper, on_complete) if on_complete else None
     self.env.controller.client.async_req(req, wrapped_on_complete, call_back_into_ui_thread = True)
 
   def type_check_file_on_complete_wrapper(self, on_complete, payload):
@@ -36,25 +37,25 @@ class EnsimeApi:
 
   def inspect_type_at_point(self, file_path, position, on_complete):
     req = ensime_codec.encode_inspect_type_at_point(file_path, position)
-    wrapped_on_complete = functools.partial(self.inspect_type_at_point_on_complete_wrapper, on_complete) if on_complete else None
+    wrapped_on_complete = bind(self.inspect_type_at_point_on_complete_wrapper, on_complete) if on_complete else None
     self.env.controller.client.async_req(req, wrapped_on_complete, call_back_into_ui_thread = True)
 
   def inspect_type_at_point_on_complete_wrapper(self, on_complete, payload):
     return on_complete(ensime_codec.decode_inspect_type_at_point(payload))
 
-  def get_completions(self, file_path, position):
+  def get_completions(self, file_path, position, max_results):
     if self.v.is_dirty():
       edits = diff.diff_view_with_disk(self.v)
-      req = ensime_codec.encode_patch_source(self.v.file_name(), edits)
+      req = ensime_codec.encode_patch_source(
+        self.v.file_name(), edits)
       self.env.controller.client.async_req(req)
-
-    req = ensime_codec.encode_completions(file_path, position)
+    req = ensime_codec.encode_completions(file_path, position, max_results)
     resp = self.env.controller.client.sync_req(req, timeout=0.5)
     return ensime_codec.decode_completions(resp)
 
   def symbol_at_point(self, file_path, position, on_complete):
     req = ensime_codec.encode_symbol_at_point(file_path, position)
-    wrapped_on_complete = functools.partial(self.symbol_at_point_on_complete_wrapper, on_complete) if on_complete else None
+    wrapped_on_complete = bind(self.symbol_at_point_on_complete_wrapper, on_complete) if on_complete else None
     self.env.controller.client.async_req(req, wrapped_on_complete, call_back_into_ui_thread = True)
 
   def symbol_at_point_on_complete_wrapper(self, on_complete, payload):
@@ -129,23 +130,28 @@ class EnsimeEnvironment(object):
     self.curr_sel = None
     self.prev_sel = None
 
+    # Tracks the most recent completion prefix that has been shown to yield empty
+    # completion results. Use this so we don't repeatedly hit ensime for results
+    # that don't exist.
+    self.completion_ignore_prefix = None
+
 
 class EnsimeLog(object):
 
   def status_message(self, msg):
-    sublime.set_timeout(functools.partial(sublime.status_message, msg), 0)
+    sublime.set_timeout(bind(sublime.status_message, msg), 0)
 
   def error_message(self, msg):
-    sublime.set_timeout(functools.partial(sublime.error_message, msg), 0)
+    sublime.set_timeout(bind(sublime.error_message, msg), 0)
 
   def log(self, data):
-    sublime.set_timeout(functools.partial(self.log_on_ui_thread, "ui", data), 0)
+    sublime.set_timeout(bind(self.log_on_ui_thread, "ui", data), 0)
 
   def log_client(self, data):
-    sublime.set_timeout(functools.partial(self.log_on_ui_thread, "client", data), 0)
+    sublime.set_timeout(bind(self.log_on_ui_thread, "client", data), 0)
 
   def log_server(self, data):
-    sublime.set_timeout(functools.partial(self.log_on_ui_thread, "server", data), 0)
+    sublime.set_timeout(bind(self.log_on_ui_thread, "server", data), 0)
 
   def log_on_ui_thread(self, flavor, data):
     if flavor in self.env.settings.get("log_to_console", {}):
@@ -164,7 +170,7 @@ class EnsimeLog(object):
         pass
 
   def view_insert(self, v, what):
-    sublime.set_timeout(functools.partial(self.view_insert_on_ui_thread, v, what), 0)
+    sublime.set_timeout(bind(self.view_insert_on_ui_thread, v, what), 0)
 
   def view_insert_on_ui_thread(self, v, what):
     selection_was_at_end = (len(v.sel()) == 1 and v.sel()[0] == sublime.Region(v.size()))
@@ -180,8 +186,8 @@ class EnsimeLog(object):
   def view_show(self, v, focus = False):
     self.w.run_command("show_panel", {"panel": "output." + v.name()})
     if focus:
-      sublime.set_timeout(functools.partial(self.w.focus_view, v), 100)
-    sublime.set_timeout(functools.partial(v.show, v.size()), 200)
+      sublime.set_timeout(bind(self.w.focus_view, v), 100)
+    sublime.set_timeout(bind(v.show, v.size()), 200)
 
   def repl_prompt(self):
     return "ensime>"
@@ -201,7 +207,7 @@ class EnsimeLog(object):
       self.env.repl_lock.release()
 
   def repl_insert(self, what, rewind = True):
-    sublime.set_timeout(functools.partial(self.repl_insert_on_ui_thread, what, rewind), 0)
+    sublime.set_timeout(bind(self.repl_insert_on_ui_thread, what, rewind), 0)
 
   def repl_insert_on_ui_thread(self, what, rewind):
     self.env.repl_lock.acquire()
@@ -231,7 +237,7 @@ class EnsimeLog(object):
       self.env.repl_lock.release()
 
   def repl_schedule_fixup(self, what, last_insert):
-    sublime.set_timeout(functools.partial(self.repl_insert_fixup, what, last_insert), self.repl_fixup_timeout())
+    sublime.set_timeout(bind(self.repl_insert_fixup, what, last_insert), self.repl_fixup_timeout())
 
   def repl_insert_fixup(self, what, last_insert):
     self.env.repl_lock.acquire()
@@ -357,6 +363,15 @@ class EnsimeTextCommand(EnsimeCommon, TextCommand):
   def __init__(self, view):
     super(EnsimeTextCommand, self).__init__(view)
     self.view = view
+
+class EnsimeEventListener(EventListener):
+  """Mixin for event listeners that require access to an ensime environment."""
+  def with_api(self, view, what, default=None):
+    api = ensime_api(view)
+    if api and api.in_project(view.file_name()):
+      return what(api)
+    else:
+      return default
 
 class ScalaOnly:
   def is_enabled(self):
@@ -534,9 +549,9 @@ class EnsimeCodec:
   def decode_inspect_type_at_point(self, data):
     return self.decode_type(data)
 
-  def encode_completions(self, file_path, position):
+  def encode_completions(self, file_path, position, max_results):
     return [sym("swank:completions"),
-            str(file_path), int(position), 30, False, False]
+            str(file_path), int(position), max_results, False, False]
 
   def decode_completions(self, data):
     if not data: return []
@@ -854,7 +869,7 @@ class EnsimeClient(EnsimeClientListener, EnsimeCommon):
       if handler:
         if callable(handler):
           if call_back_into_ui_thread:
-            sublime.set_timeout(functools.partial(handler, payload), 0)
+            sublime.set_timeout(bind(handler, payload), 0)
           else:
             handler(payload)
         else:
@@ -880,7 +895,7 @@ class EnsimeClient(EnsimeClientListener, EnsimeCommon):
 
   def call_back_into_ui_thread(vanilla):
     def wrapped(self, msg_id, payload):
-      sublime.set_timeout(functools.partial(vanilla, self, msg_id, payload), 0)
+      sublime.set_timeout(bind(vanilla, self, msg_id, payload), 0)
     return wrapped
 
   @call_back_into_ui_thread
@@ -1151,10 +1166,10 @@ class EnsimeController(EnsimeCommon, EnsimeClientListener, EnsimeServerListener)
             message = "\"connect_to_external_server\" in your Ensime.sublime-settings is set to true, "
             message += "however \"external_server_port_file\" is not specified. "
             message += "Please, set it to a meaningful value and restart ENSIME."
-            sublime.set_timeout(functools.partial(sublime.error_message, message), 0)
+            sublime.set_timeout(bind(sublime.error_message, message), 0)
             raise Exception("external_server_port_file not specified")
           self.ready = True # external server is deemed to be always ready
-          sublime.set_timeout(functools.partial(self.request_handshake), 0)
+          sublime.set_timeout(bind(self.request_handshake), 0)
         else:
           _, port_file = tempfile.mkstemp("ensime_port")
           self.port_file = port_file
@@ -1171,7 +1186,7 @@ class EnsimeController(EnsimeCommon, EnsimeClientListener, EnsimeServerListener)
   def on_server_data(self, data):
     if not self.ready and re.search("Wrote port", data):
       self.ready = True
-      sublime.set_timeout(functools.partial(self.request_handshake), 0)
+      sublime.set_timeout(bind(self.request_handshake), 0)
 
   def request_handshake(self):
     timeout = self.env.settings.get("rpc_timeout", 3)
@@ -1250,7 +1265,7 @@ class EnsimeShutdownCommand(RunningOnly, EnsimeWindowCommand):
 class EnsimeRestartCommand(RunningOnly, EnsimeWindowCommand):
   def run(self):
     self.w.run_command("ensime_shutdown")
-    sublime.set_timeout(functools.partial(self.w.run_command, "ensime_startup"), 100)
+    sublime.set_timeout(bind(self.w.run_command, "ensime_startup"), 100)
 
 class EnsimeShowClientMessagesCommand(EnsimeWindowCommand):
   def run(self):
@@ -1476,7 +1491,7 @@ class EnsimeHighlightStatus(EnsimeCommon):
         status = "; ".join(msgs)
         if len(status) > maxlength:
           status = status[0:maxlength] + "..."
-        sublime.set_timeout(functools.partial(self.v.set_status, statusgroup, status), 100)
+        sublime.set_timeout(bind(self.v.set_status, statusgroup, status), 100)
       else:
         self.v.erase_status(statusgroup)
 
@@ -1512,11 +1527,7 @@ class EnsimeShowNotesCommand(ConnectedEnsimeOnly, EnsimeTextCommand):
     v.sel().clear()
     v.sel().add(Region(0, 0))
 
-class EnsimeHighlightDaemon(EventListener):
-  def with_api(self, view, what):
-    api = ensime_api(view)
-    if api and api.in_project(view.file_name()):
-      what(api)
+class EnsimeHighlightDaemon(EnsimeEventListener):
 
   def on_load(self, view):
     self.with_api(view, lambda api: api.type_check_file(view.file_name()))
@@ -1603,15 +1614,71 @@ class EnsimeCtrlTilde(EnsimeWindowCommand):
     else:
       self.w.run_command("hide_panel", {"panel": "console"})
 
-class EnsimeCompletionsListener(EventListener):
-  def on_query_completions(self, view, prefix, locations):
-    if not view.match_selector(locations[0], "source.scala"): return []
-    api = ensime_api(view)
-    completions = api.get_completions(view.file_name(), locations[0]) if api else None
-    if completions is None: return []
-    return ([(c.name + "\t" + c.signature, c.name) for c in completions],
+
+class EnsimeCompletionsListener(EnsimeEventListener):
+
+  def __init__(self):
+    super(EnsimeCompletionsListener, self).__init__()
+
+  def _signature_doc(self, signature):
+    """Given a ensime CompletionSignature structure, returns a short
+    string suitable for showing in the help section of the completion
+    pop-up."""
+    sections = signature[0] or []
+    section_param_strs = [[param[1] for param in params] for params in sections]
+    section_strs = ["(" + ", ".join(tpes) + ")" for tpes in
+                    section_param_strs]
+    return ", ".join(section_strs)
+
+  def _signature_snippet(self, signature):
+    """Given a ensime CompletionSignature structure, returns a Sublime Text
+    snippet describing the method parameters."""
+    snippet = []
+    sections = signature[0] or []
+    section_snippets = []
+    i = 1
+    for params in sections:
+      param_snippets = []
+      for param in params:
+        name,tpe = param
+        param_snippets.append("${%s:%s:%s}" % (i, name, tpe))
+        i += 1
+      section_snippets.append("(" + ", ".join(param_snippets) + ")")
+    return ", ".join(section_snippets)
+
+  def _completion_response(self, ensime_completions):
+    """Transform list of completions from ensime API to a the structure
+    necessary for returning to sublime API."""
+    return ([(c.name + "\t" + self._signature_doc(c.signature),
+              c.name + self._signature_snippet(c.signature))
+             for c in ensime_completions],
             sublime.INHIBIT_EXPLICIT_COMPLETIONS |
             sublime.INHIBIT_WORD_COMPLETIONS)
+
+  def _query_completions(self, view, prefix, locations, api):
+    """Query the ensime API for completions. Note: we must ask for _all_
+    completions as sublime will not re-query unless this query returns an
+    empty list."""
+    # Short circuit for prefix that is known to return empty list
+    # TODO(aemoncannon): Clear ignore prefix if the user
+    # moves point to new context.
+    if (api.env.completion_ignore_prefix and
+        prefix.startswith(api.env.completion_ignore_prefix)):
+      return self._completion_response([])
+    else:
+      api.env.completion_ignore_prefix = None
+    if not view.match_selector(locations[0], "source.scala"): return []
+    completions = api.get_completions(
+      view.file_name(), locations[0], 0) if api else []
+    if not completions:
+      api.env.completion_ignore_prefix = prefix
+    return self._completion_response(completions)
+
+  def on_query_completions(self, view, prefix, locations):
+    return self.with_api(view,
+                         bind(self._query_completions, view, prefix, locations),
+                         default=[])
+
 
 class EnsimeInspectTypeAtPoint(ProjectFileOnly, EnsimeTextCommand):
   def run(self, edit, target= None):
@@ -1624,10 +1691,10 @@ class EnsimeInspectTypeAtPoint(ProjectFileOnly, EnsimeTextCommand):
       summary = tpe.full_name
       if tpe.type_args:
         summary += ("[" + ", ".join(map(lambda t: t.name, tpe.type_args)) + "]")
-      sublime.set_timeout(functools.partial(self.v.set_status, statusgroup, summary), 100)
+      sublime.set_timeout(bind(self.v.set_status, statusgroup, summary), 100)
     else:
       statusmessage = "Type of the expression at cursor is unknown"
-      sublime.set_timeout(functools.partial(self.v.set_status, statusgroup, statusmessage), 100)
+      sublime.set_timeout(bind(self.v.set_status, statusgroup, statusmessage), 100)
 
 class EnsimeGoToDefinition(ProjectFileOnly, EnsimeTextCommand):
   def run(self, edit, target= None):
@@ -1644,7 +1711,7 @@ class EnsimeGoToDefinition(ProjectFileOnly, EnsimeTextCommand):
       v.sel().add(Region(info.decl_pos.offset, info.decl_pos.offset))
     else:
       statusmessage = "Definition of " + str(info.name) + " cannot be found"
-      sublime.set_timeout(functools.partial(self.v.set_status, statusgroup, statusmessage), 100)
+      sublime.set_timeout(bind(self.v.set_status, statusgroup, statusmessage), 100)
 
 class EnsimeDebug(EnsimeCommon):
 
