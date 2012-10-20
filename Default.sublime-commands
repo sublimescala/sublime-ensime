@@ -50,5 +50,9 @@
   {
     "caption": "Ensime: Go to Definition",
     "command": "ensime_go_to_definition"
+  },
+  {
+    "caption": "Ensime: Add Import",
+    "command": "ensime_add_import"
   }
 ]

@@ -14,7 +14,7 @@ class ActiveRecord(object):
       field = ":" + cls.__name__.lower() + "s"
       return [cls.parse(raw) for raw in (m[field] if field in m else [])]
     else:
-      [cls.parse(raw) for raw in raw]
+      return [cls.parse(raw) for raw in raw]
 
   @classmethod
   def parse(cls, raw):
@@ -74,6 +74,32 @@ class Type(ActiveRecord):
       self.type_args = Type.parse_list(m[":type-args"]) if ":type-args" in m else []
       self.outer_type_id = m[":outer-type-id"] if ":outer-type-id" in m else None
       self.members = Member.parse_list(m[":members"]) if ":members" in m else []
+
+class SymbolSearchResults(ActiveRecord):
+  #  we override parse here because raw contains a List of SymbolSearchResult.
+  # The ActiveRecord parse method expects raw to contain an object at this point
+  # and calls sexp_to_key_map. . 
+  @classmethod
+  def parse(cls, raw):
+    if not raw: return None
+    self = cls()
+    self.populate(raw)
+    return self
+
+  def populate(self, m):
+    self.results = SymbolSearchResult.parse_list(m)
+
+class SymbolSearchResult(ActiveRecord):
+  def populate(self, m):
+    self.name = m[":name"]
+    self.local_name = m[":local-name"]
+    self.decl_as = m[":decl-as"] if ":decl-as" in m else None
+    self.pos = Position.parse(m[":pos"]) if ":pos" in m else None
+
+
+class RefactorResult(ActiveRecord):
+  def populate(self, m):
+    self.done = True
 
 class Member(ActiveRecord):
   def populate(self, m):
@@ -261,6 +287,12 @@ class Rpc(object):
 
   @async_rpc(Symbol.parse)
   def symbol_at_point(self, file_name, position): pass
+
+  @async_rpc(SymbolSearchResults.parse_list)
+  def import_suggestions(self, file_name, position, type_names, max_results): pass
+
+  @async_rpc(RefactorResult.parse)
+  def prepare_refactor(self, procedure_id, refactor_type, parameters, require_confirmation): pass
 
   @async_rpc()
   def debug_set_break(self, file_name, line): pass

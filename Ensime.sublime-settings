@@ -39,5 +39,8 @@
   "external_server_port_file": "",
   "os_independent_paths_in_dot_ensime": false,
   "plugin_version": "0.5.0",
-  "min_ensime_server_version": "0.9.8"
+  "min_ensime_server_version": "0.9.8",
+
+  "max_import_suggestions": 20
+
 }

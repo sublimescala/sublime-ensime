@@ -66,6 +66,8 @@ def read_form(str):
     return read_int(str)
   elif ch.isalpha():
     return read_symbol(str)
+  elif ch == '\'':
+    return read_atom(str)
   else:
     raise SyntaxError('unexpected character in read_form: ' + ch)
 
@@ -110,6 +112,22 @@ def read_string(str):
     s = s + ch
     str = str[1:]
   raise SyntaxError('EOF while reading string')
+
+def read_atom(str):
+  "Read an atom."
+  if len(str) == 0:
+    raise SyntaxError('unexpected EOF while reading atom')
+  if str[0] != '\'':
+    raise SyntaxError('expected \' as first char of atom: ' + str)
+  str = str[1:]
+  s = ""
+  while(len(str) > 0):
+    ch = str[0]
+    if ch.isspace():
+      return (s,str[1:])
+    s = s + ch
+    str = str[1:]
+  raise SyntaxError('EOF while reading atom')
 
 
 def read_keyword(str):
@@ -191,6 +209,8 @@ def atom_to_str(exp):
     return "t"
   elif (not exp) and (type(exp) == type(False)):
     return "nil"
+  elif type(exp) == Symbol:
+    return exp.val
   elif isinstance(exp, basestring):
     return "\"" + exp.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
   else:

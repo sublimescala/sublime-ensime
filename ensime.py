@@ -1346,6 +1346,47 @@ class EnsimeGoToDefinition(RunningProjectFileOnly, EnsimeTextCommand):
     v.sel().add(region.begin())
     v.show(region)
 
+class EnsimeAddImport(RunningProjectFileOnly, EnsimeTextCommand):
+  def run(self, edit, target= None):
+    pos = int(target or self.v.sel()[0].begin())
+    word  = self.v.substr(self.v.word(pos))
+    if (len(strip(word)) > 0):
+      if self.v.is_dirty():
+        self.v.run_command('save')
+      self.rpc.import_suggestions(self.v.file_name(), pos, [word] , self.env.settings.get("max_import_suggestions", 10) , self.handle_sugestions_response)
+
+  def handle_sugestions_response(self, info):
+    # We only send one word in the request so there should only be one SymbolSearchResults in the response list
+    results = info[0].results
+    names = map(lambda a: a.name, results)
+    def do_refactor(i):
+      if (i > -1):
+        params = [sym('qualifiedName'), names[i], sym('file'), self.v.file_name(), sym('start'), 0,sym('end'), 0]
+        self.rpc.prepare_refactor(1, sym('addImport'), params, False, self.handle_refactor_response)
+   
+    self.v.window().show_quick_panel(names, do_refactor)
+
+  def handle_refactor_response(self, response):
+    view = self.v
+    original_size = view.size()
+    original_pos = view.sel()[0].begin()
+    # Load changes
+    view.run_command('revert')
+    # Wait until view loaded then move cursor to original position
+    def on_load():
+      if (view.is_loading()):
+        # Wait again
+        set_timeout(on_load, 50)
+      else:
+        size_diff = view.size() - original_size
+        new_pos = original_pos + size_diff
+        view.sel().clear()
+        view.sel().add(sublime.Region(new_pos))
+        view.show(new_pos)
+    on_load()
+
+
+
 ############################## SUBLIME COMMANDS: DEBUGGING ##############################
 
 class EnsimeToggleBreakpoint(ProjectFileOnly, EnsimeTextCommand):
