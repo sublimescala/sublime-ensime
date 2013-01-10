@@ -874,11 +874,6 @@ class Controller(EnsimeCommon, ClientListener, ServerListener):
 
 class Daemon(EnsimeEventListener):
 
-  def on_load(self):
-    # print "on_load"
-    if self.is_running() and self.in_project():
-      self.rpc.typecheck_file(self.v.file_name())
-
   def on_post_save(self):
     # print "on_post_save"
     if self.is_running() and self.in_project():
@@ -888,7 +883,19 @@ class Daemon(EnsimeEventListener):
       self.redraw_all_breakpoints()
 
   def on_activated(self):
-    # print "on_activated"
+    # print "on_activated " + str(self.v.file_name())
+    filename = self.v.file_name()
+    if filename is not None:
+      should_typecheck = filename not in self.env.typechecked_files
+      if should_typecheck:
+        # print str(filename) + " should be typechecked"
+        if self.is_running() and self.in_project():
+          self.rpc.typecheck_file(self.v.file_name())
+          self.env.typechecked_files.add(filename)
+      else:
+        # print str(filename) + " won't be typechecked"
+        pass
+
     self.colorize()
     if self.in_project():
       self.env.notee = self.v
@@ -914,6 +921,11 @@ class Daemon(EnsimeEventListener):
       self.env.breakpoints = irrelevant_breakpoints + relevant_breakpoints
       self.env.save_session()
       self.redraw_breakpoints()
+
+  def on_close(self):
+    filename = self.v.file_name()
+    if filename is not None:
+      self.env.typechecked_files.discard(filename)
 
 class Colorer(EnsimeCommon):
 

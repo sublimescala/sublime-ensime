@@ -95,6 +95,9 @@ class EnsimeEnvironment(object):
     # that don't exist.
     self.completion_ignore_prefix = None
 
+    # typechecked files
+    self.typechecked_files = set()
+
     # debugger stuff (mutable)
     # didn't prefix it with "debugger_", because there are no name clashes yet
     self.profile_being_launched = None
