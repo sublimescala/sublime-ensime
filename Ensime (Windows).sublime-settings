@@ -1,4 +1,4 @@
 {
   // build settings
-  "sbt_binary": "sbt"
+  "sbt_binary": "sbt.bat"
 }
