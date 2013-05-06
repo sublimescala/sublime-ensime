@@ -60,3 +60,11 @@ def relative_path(root, wannabe):
   root = os.path.normcase(os.path.realpath(root))
   wannabe = os.path.normcase(os.path.realpath(wannabe))
   return wannabe[len(root) + 1:]
+
+def to_unicode(string):
+    if(string!=None):
+        try:
+            string=unicode(string,"utf-8")
+        except:
+            pass
+    return string

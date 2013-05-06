@@ -14,6 +14,8 @@ from constants import *
 from paths import *
 from rpc import *
 from sbt import *
+reload(sys)
+sys.setdefaultencoding("utf-8")
 
 class EnsimeCommon(object):
   def __init__(self, owner):
@@ -91,6 +93,7 @@ class EnsimeCommon(object):
 
   def in_project(self, wannabe = None):
     filename = self._filename_from_wannabe(wannabe)
+    filename = to_unicode(filename)
     extension_ok = filename and (filename.endswith("scala") or filename.endswith("java"))
     subpath_ok = self.env and is_subpath(self.env.project_root, filename)
     return extension_ok and subpath_ok
@@ -476,7 +479,7 @@ class Client(ClientListener, EnsimeCommon):
 
     self.feedback(msg_str)
     self.log_client("SEND ASYNC REQ: " + msg_str)
-    self.socket.send(msg_str.encode('utf-8'))
+    self.socket.send(to_unicode(msg_str))
 
   def sync_req(self, to_send, timeout=0):
     msg_id = self.next_message_id()
