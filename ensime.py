@@ -14,8 +14,6 @@ from constants import *
 from paths import *
 from rpc import *
 from sbt import *
-reload(sys)
-sys.setdefaultencoding("utf-8")
 
 class EnsimeCommon(object):
   def __init__(self, owner):
@@ -71,11 +69,17 @@ class EnsimeCommon(object):
         if not os.path.exists(self.env.log_root):
           os.mkdir(self.env.log_root)
         file_name = self.env.log_root + os.sep + flavor + ".log"
-        with open(file_name, "a") as f: f.write("[" + str(datetime.datetime.now()) + "]: " + data.strip() + "\n")
+        with open(file_name, "a") as f: f.write(self.log_message(data))
       except:
         exc_type, exc_value, exc_tb = sys.exc_info()
         detailed_info = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
         print detailed_info
+
+  def log_message(self, data):
+      stringBuilder="["+str(datetime.datetime.now())+"]: "
+      stringBuilder+=data.strip().encode("utf-8") if type(data.strip()) is unicode else data.strip()
+      stringBuilder+="\n"
+      return stringBuilder
 
   def is_valid(self):
     return self.env and self.env.valid
@@ -93,7 +97,6 @@ class EnsimeCommon(object):
 
   def in_project(self, wannabe = None):
     filename = self._filename_from_wannabe(wannabe)
-    filename = to_unicode(filename)
     extension_ok = filename and (filename.endswith("scala") or filename.endswith("java"))
     subpath_ok = self.env and is_subpath(self.env.project_root, filename)
     return extension_ok and subpath_ok
@@ -479,7 +482,7 @@ class Client(ClientListener, EnsimeCommon):
 
     self.feedback(msg_str)
     self.log_client("SEND ASYNC REQ: " + msg_str)
-    self.socket.send(to_unicode(msg_str))
+    self.socket.send(msg_str.encode("utf-8")if type(msg_str) is unicode  else msg_str)
 
   def sync_req(self, to_send, timeout=0):
     msg_id = self.next_message_id()

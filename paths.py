@@ -49,7 +49,7 @@ def is_subpath(root, wannabe):
   if not root or not wannabe:
     return False
   root = os.path.normcase(os.path.realpath(root))
-  wannabe = os.path.normcase(os.path.realpath(wannabe))
+  wannabe = os.path.normcase(os.path.realpath(wannabe)).encode("utf-8")
   return wannabe.startswith(root)
 
 def relative_path(root, wannabe):
@@ -60,11 +60,3 @@ def relative_path(root, wannabe):
   root = os.path.normcase(os.path.realpath(root))
   wannabe = os.path.normcase(os.path.realpath(wannabe))
   return wannabe[len(root) + 1:]
-
-def to_unicode(string):
-    if(string!=None):
-        try:
-            string=unicode(string,"utf-8")
-        except:
-            pass
-    return string
