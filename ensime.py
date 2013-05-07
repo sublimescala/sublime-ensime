@@ -69,17 +69,17 @@ class EnsimeCommon(object):
         if not os.path.exists(self.env.log_root):
           os.mkdir(self.env.log_root)
         file_name = self.env.log_root + os.sep + flavor + ".log"
-        with open(file_name, "a") as f: f.write(self.log_message(data))
+        with open(file_name, "a") as f: f.write(self.prepare_log_message(data))
       except:
         exc_type, exc_value, exc_tb = sys.exc_info()
         detailed_info = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
         print detailed_info
 
-  def log_message(self, data):
-      stringBuilder="["+str(datetime.datetime.now())+"]: "
-      stringBuilder+=data.strip().encode("utf-8") if type(data.strip()) is unicode else data.strip()
-      stringBuilder+="\n"
-      return stringBuilder
+  def prepare_log_message(self, data):
+      buffer = "[" + str(datetime.datetime.now()) + "]: "
+      buffer += data.strip().encode("utf-8") if type(data.strip()) is unicode else data.strip()
+      buffer += "\n"
+      return buffer
 
   def is_valid(self):
     return self.env and self.env.valid
