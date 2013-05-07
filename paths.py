@@ -49,7 +49,7 @@ def is_subpath(root, wannabe):
   if not root or not wannabe:
     return False
   root = os.path.normcase(os.path.realpath(root))
-  wannabe = os.path.normcase(os.path.realpath(wannabe))
+  wannabe = os.path.normcase(os.path.realpath(wannabe)).encode("utf-8")
   return wannabe.startswith(root)
 
 def relative_path(root, wannabe):
