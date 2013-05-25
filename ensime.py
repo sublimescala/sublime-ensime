@@ -77,7 +77,7 @@ class EnsimeCommon(object):
               
   def prepare_log_message(self, data):
     buffer = "["+str(datetime.datetime.now())+"]: "
-    buffer += data.strip().encode("utf-8") if isinstance(data.strip(), unicode) else data.strip()
+    buffer += encode_if_unicode(data.strip())
     buffer += "\n"
     return buffer
 
@@ -482,7 +482,7 @@ class Client(ClientListener, EnsimeCommon):
 
     self.feedback(msg_str)
     self.log_client("SEND ASYNC REQ: " + msg_str)
-    self.socket.send(msg_str.encode('utf-8') if isinstance(msg_str, unicode) else msg_str)
+    self.socket.send(encode_if_unicode(msg_str))
 
   def sync_req(self, to_send, timeout=0):
     msg_id = self.next_message_id()
