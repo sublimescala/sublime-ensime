@@ -92,6 +92,9 @@ if you catch SublimeScala misbehaving: https://github.com/sublimescala/sublime-e
        If you want to disable these bindings or change them bindings to something else,
        adjust the config at `Preferences > Package Settings > Mousemap - Default`.
 
+    c. For Windows users, make sure the Line Endings setting in Sublime Text 2 is set to Unix.
+       You may do this by going to View > Line Endings and selecting 'Unix'.
+
 ## How to use?
 
 Open the Sublime command palette (typically bound to `Ctrl+Shift+P` on Windows/Linux and `Cmd+Shift+P` on Mac) and type `Ensime: Startup`.
@@ -103,6 +106,10 @@ and the server will initialize a resident instance of the Scala compiler.
 After the server is ready, a message will appear in the left-hand corner of the status bar.
 It will read either `ENSIME` if the currently opened file belongs to the active Ensime project
 or `ensime` if it doesn't. Keep an eye on this message - it's an indicator of things going well.
+
+## Troubleshooting
+
+If you find that some features of ensime are not working properly (i.e. Go To Definition or Error Highlighting), then check the Line Endings setting in Sublime Text 2.  On Windows, the line endings is set to 'Windows' by default.  Simply change this setting to 'Unix' by going to View > Line Endings and selecting 'Unix'.
 
 ## Contacts
 
