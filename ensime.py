@@ -209,7 +209,7 @@ class EnsimePreciseMouseCommand(EnsimeTextCommand):
       self.v.run_command(system_command, system_args)
 
   # note the underscore in "run_"
-  def run_(self, args):
+  def run_(self, edit_token, args): 
     if self.is_applicable():
       self.old_sel = [(r.a, r.b) for r in self.v.sel()]
       # unfortunately, running an additive drag_select is our only way of getting the coordinates of the click
