@@ -1,11 +1,12 @@
 import sublime
+import codecs
 from sublime import *
 from sublime_plugin import *
 import difflib
 
 
 def diff_view_with_disk(view):
-  old_s = open(view.file_name()).read()
+  old_s = codecs.open(view.file_name(), "r", "utf-8").read()
   new_s = view.substr(Region(0, view.size()))
   return diff(old_s, new_s)
 
