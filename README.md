@@ -78,7 +78,7 @@ if you catch SublimeScala misbehaving: https://github.com/sublimescala/sublime-e
 
 2. Install the ENSIME server:
 
-    Download Ensime from http://download.sublimescala.org.
+    Download Ensime from https://github.com/ensime/ensime-server/downloads.
     The archive will contain a directory with an Ensime version.
     
     Make sure to download the build which matches your Scala version.
